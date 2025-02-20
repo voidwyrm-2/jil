@@ -1,0 +1,5 @@
+f main
+  def msg as "hello there."
+  call println with msg
+  r 0
+end
