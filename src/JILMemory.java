@@ -6,9 +6,59 @@ public class JILMemory {
     HashMap<Integer, Allocation> allocations;
     int allocatedSpace;
 
-    private record Allocation(int start, int size) {
+    public MemoryDebug debug;
+
+    private record Allocation(int start, int size) implements Comparable<AllocationEntry> {
         int end() {
             return start + size;
+        }
+
+        @Override
+        public int compareTo(AllocationEntry o) {
+            return Integer.compare(start, o.start);
+        }
+    }
+
+    private record AllocationEntry(int id, int start, int size) implements Comparable<AllocationEntry> {
+        Allocation toAllocation() {
+            return new Allocation(start, size);
+        }
+
+        @Override
+        public int compareTo(AllocationEntry o) {
+            return Integer.compare(start, o.start);
+        }
+
+        @Override
+        public String toString() {
+            return String.format("<id: %d, start: %d, size: %d>", id, start, size);
+        }
+    }
+
+    public record MemoryDebug(JILMemory memref) {
+        public void printMemory() {
+            System.out.println("memory: " + Arrays.toString(memref.memory));
+        }
+
+        public void printAllocations() {
+            StringBuilder str = new StringBuilder();
+
+            str.append("total allocated space: ").append(memref.allocatedSpace).append(" of ").append(memref.memory.length).append("\n");
+
+            AllocationEntry[] entries = new AllocationEntry[memref.allocations.size()];
+            {
+                int i = 0;
+                for (Integer k : memref.allocations.keySet()) {
+                    Allocation a = memref.allocations.get(k);
+                    entries[i] = new AllocationEntry(k, a.start, a.size);
+                    i++;
+                }
+            }
+
+            Arrays.sort(entries);
+            for (AllocationEntry e : entries) str.append(e).append("\n");
+
+            System.out.print(str);
         }
     }
 
@@ -16,6 +66,8 @@ public class JILMemory {
         memory = new int[size];
         allocations = new HashMap<>();
         allocatedSpace = 0;
+
+        debug = new MemoryDebug(this);
     }
 
     private void upsize(int amount) throws JILException {
@@ -63,7 +115,7 @@ public class JILMemory {
         while (allocations.containsKey(ptrID))
             ptrID = generateID();
 
-        allocations.put(ptrID, new Allocation(allocatedSpace == 0 ? 0 : allocatedSpace + 1, size));
+        allocations.put(ptrID, new Allocation(allocatedSpace, size));
         allocatedSpace += size;
 
         return ptrID;
@@ -72,36 +124,83 @@ public class JILMemory {
     public void free(int id) throws JILException {
         checkID(id);
 
-        Allocation alloc = allocations.remove(id);
-        allocatedSpace -= alloc.size;
+        Allocation freedAlloc = allocations.remove(id);
+        allocatedSpace -= freedAlloc.size;
 
-        clear(alloc.start, alloc.end());
+        clear(freedAlloc.start, freedAlloc.end());
 
-        for (int k : allocations.keySet()) {
-            Allocation a = allocations.remove(k);
-            if (a.start > id)
-                allocations.put(k, new Allocation(a.start - alloc.size, a.size));
+        AllocationEntry[] existingAllocs = new AllocationEntry[allocations.size()];
+        {
+            int i = 0;
+            for (Integer k : allocations.keySet()) {
+                Allocation a = allocations.get(k);
+                existingAllocs[i] = new AllocationEntry(k, a.start, a.size);
+                i++;
+            }
+        }
+
+        Arrays.sort(existingAllocs);
+
+        int prevEnd = freedAlloc.end();
+        for (AllocationEntry ae : existingAllocs) {
+            if (ae.start > prevEnd) {
+                if (ae.start - prevEnd == 1)
+                    continue;
+
+                Allocation oldAlloc = ae.toAllocation();
+
+                int newStart = ae.start - prevEnd;
+                prevEnd = oldAlloc.end();
+
+                if (oldAlloc.size == 1) {
+                    int prevValue = memory[oldAlloc.start];
+                    memory[oldAlloc.start] = 0;
+                    memory[newStart] = prevValue;
+                } else {
+                    int[] prevArr = Arrays.copyOfRange(memory, oldAlloc.start, oldAlloc.end());
+                    clear(oldAlloc.start, oldAlloc.end());
+                    System.arraycopy(prevArr, 0, memory, newStart, prevArr.length);
+                }
+
+                allocations.put(ae.id, new Allocation(newStart, oldAlloc.size));
+            }
         }
     }
 
-    public void setRef(int id) throws JILException {
+    public void deref(int id, int value) throws JILException {
         checkID(id);
-        throw new UnsupportedOperationException("not implemented");
+        memory[allocations.get(id).start] = value;
     }
 
-    public void setArrayRef(int id, int[] arr) throws JILException {
+    public void derefArray(int id, int[] arr) throws JILException {
         checkID(id);
-        throw new UnsupportedOperationException("not implemented");
+        Allocation a = allocations.get(id);
+        for (int i = 0; i < a.size && i < arr.length; i++) memory[a.start + i] = arr[i];
     }
 
-    public int getRef(int id) throws JILException {
+    public void derefString(int id, String str) throws JILException {
+        checkID(id);
+        Allocation a = allocations.get(id);
+        byte[] bytes = str.getBytes();
+        for (int i = 0; i < a.size && i < str.length(); i++) memory[a.start + i] = bytes[i];
+    }
+
+    public int deref(int id) throws JILException {
         checkID(id);
         return memory[allocations.get(id).start];
     }
 
-    public int[] getArrayRef(int id) throws JILException {
+    public int[] derefArray(int id) throws JILException {
         checkID(id);
         Allocation a = allocations.get(id);
         return Arrays.copyOfRange(memory, a.start, a.end());
+    }
+
+    public String derefString(int id) throws JILException {
+        checkID(id);
+        Allocation a = allocations.get(id);
+        StringBuilder str = new StringBuilder();
+        for (int n : Arrays.copyOfRange(memory, a.start, a.end())) str.append((char)n);
+        return str.toString();
     }
 }
