@@ -6,9 +6,9 @@ public class JILInterpreter {
     JILMemory memory;
     HashMap<String, Integer> vars;
 
-    public JILInterpreter(Integer memorySize) {
+    public JILInterpreter(Integer memorySize) throws JILException {
         memory = new JILMemory(memorySize);
-        vars = new HashMap<String, Integer>();
+        vars = new HashMap<>();
     }
 
     private JILToken[][] tokenize(String text) {

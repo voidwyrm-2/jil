@@ -17,6 +17,10 @@ public class JILToken {
         return isString;
     }
 
+    public String getContent() {
+        return content;
+    }
+
     @Override
     public String toString() {
         return String.format("{`%s`, isString? %s}", content, isString ? "yes" : "no");
