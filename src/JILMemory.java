@@ -2,9 +2,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 
 public class JILMemory {
-    int[] memory;
-    HashMap<Integer, Allocation> allocations;
-    int allocatedSpace;
+    private int[] memory;
+    private HashMap<Integer, Allocation> allocations;
+    private int allocatedSpace;
 
     public MemoryDebug debug;
 

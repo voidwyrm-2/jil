@@ -1,6 +1,45 @@
-public record JILFunction(JILToken[][] tokens, int args) {
-    public int runf(String file, JILMemory outerMemory) throws JILException {
-        JILInterpreter interpreter = new JILInterpreter(outerMemory);
-        return interpreter.execute(file, true, tokens);
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.Objects;
+
+public class JILFunction {
+    JILToken[][] tokens;
+    int argc;
+    Method builtin = null;
+
+    public JILFunction(JILToken[][] tokens, int argc) {
+        this.tokens = tokens;
+        this.argc = argc;
+    }
+
+    public JILFunction(Method builtin) throws JILException {
+        if (!builtin.getReturnType().equals(int.class))
+            throw new JILException(String.format("imported function '%s' does not return an integer", builtin.getName()));
+
+        int i = 1;
+        for (Class<?> param : builtin.getParameterTypes()) {
+            if (i == 1) {
+                if (!param.equals(JILMemory.class))
+                    throw new JILException(String.format("argument %d from imported function '%s' is not of the type JILMemory", i, builtin.getName()));
+            } else if (!param.equals(int.class)) {
+                throw new JILException(String.format("argument %d from imported function '%s' is not of the type JILMemory", i, builtin.getName()));
+            }
+            i++;
+        }
+
+        this.builtin = builtin;
+    }
+
+    public int run(String file, JILMemory outerMemory, int ...args) throws JILException {
+        if (builtin != null) {
+            try {
+                return (int)builtin.invoke(null);
+            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+                throw new JILException(e.getMessage());
+            }
+        } else {
+            JILInterpreter interpreter = new JILInterpreter(outerMemory);
+            return interpreter.execute(file, true, tokens);
+        }
     }
 }
