@@ -34,8 +34,10 @@ public class JILFunction {
         if (builtin != null) {
             try {
                 return (int)builtin.invoke(null);
-            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            } catch (IllegalAccessException | IllegalArgumentException e) {
                 throw new JILException(e.getMessage());
+            } catch (InvocationTargetException e) {
+                throw new JILException("an internal exception has occurred inside the called native function");
             }
         } else {
             JILInterpreter interpreter = new JILInterpreter(outerMemory);
