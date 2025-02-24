@@ -4,18 +4,24 @@ import java.util.Arrays;
 public class Main {
     public static void main(String[] args) {
         try {
-            JILInterpreter interpreter = new JILInterpreter(0);
+            JILInterpreter interpreter = new JILInterpreter(20);
 
-            //interpreter.execute("StaticTest", false, "import \"std/IO\"\n\nf main\ndef msg as \"hello there.\"\ncall println with msg\nr 0\nend");
+            //interpreter.execute("StaticTest", false, "import \"std/IO\"\n\nf main\ndef msg as \"hello there.\"\ncall println msg\nr 0\nend");
 
-            interpreter.execute("StaticTest2", false, """
-import "std/IO"
-""");
+            interpreter.execute("StaticTest2", false, "import \"std/IO\"");
 
-            interpreter.execute("StaticTest3", true, """
-def x 10
-call println with x
-""");
+            interpreter.execute("StaticTest3", true, "def x 20");
+
+            interpreter.execute("StaticTest3", true, "call prinl x");
+
+            interpreter.execute("StaticTest4", true, "def y \"hello!\"");
+
+            interpreter.execute("StaticTest4", true, "call prinsl y");
+
+            interpreter.execute("StaticTest5", true, "def z x 10 +");
+
+            interpreter.execute("StaticTest5", true, "call prinl z");
+
         } catch (JILException e) {
             System.out.println(e.getMessage());
         }

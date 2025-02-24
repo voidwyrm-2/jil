@@ -3,7 +3,7 @@ import java.util.HashMap;
 
 public class JILMemory {
     private int[] memory;
-    private HashMap<Integer, Allocation> allocations;
+    private final HashMap<Integer, Allocation> allocations;
     private int allocatedSpace;
 
     public MemoryDebug debug;
@@ -95,6 +95,13 @@ public class JILMemory {
         int second = (int)(dSecond * 100000);
         int third = (int)(dThird * 100000);
 
+        if (first == 0)
+            first = 1;
+        if (second == 0)
+            second = 1;
+        if (third == 0)
+            third = 1;
+
         return (((first << second) / third) * first) / (third & first);
     }
 
@@ -109,6 +116,10 @@ public class JILMemory {
         else if (memory.length - allocatedSpace < size)
             //upsize(memory.length - allocatedSpace - size);
             throw new JILException("out of memory for allocation");
+
+        for (Integer id: allocations.keySet()) {
+            Allocation a = allocations.get(id);
+        }
 
         int ptrID = generateID();
 

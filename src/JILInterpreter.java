@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 public class JILInterpreter {
     private final JILMemory memory;
     private final HashMap<String, Integer> vars;
-    final HashMap<String, JILFunction> funcs;
+    private final HashMap<String, JILFunction> funcs;
 
     private record TokenChecker(JILToken[] tokens) {
         static class TMatcher {
@@ -39,7 +39,7 @@ public class JILInterpreter {
 
             @Override
             public String toString() {
-                return String.format("[{%s %s %s}", expectString, anyOption, Arrays.toString(options));
+                return String.format("{string: %s, any: %s, options: %s}", expectString, anyOption, Arrays.toString(options));
             }
         }
 
@@ -47,35 +47,32 @@ public class JILInterpreter {
             StringBuilder expectMsg = new StringBuilder();
             if (matcher.expectString) {
                 expectMsg.append("expected string, but found ");
+            } else if (matcher.anyOption) {
+                expectMsg.append("expected identifier, but found ");
             } else if (matcher.options.length == 0) {
                 expectMsg.append("expected EOL, but found ");
             } else {
                 expectMsg.append("expected '");
                 for (int i = 0; i < matcher.options.length; i++)
-                    expectMsg.append(matcher.options[i]).append(i == matcher.options.length - 1 ? "" : "', '");
-                //expectMsg.delete();
+                    expectMsg.append(matcher.options[i]).append(i == matcher.options.length - 1 ? "" : i == matcher.options.length - 2 ? "', or '" :  "', '");
                 expectMsg.append("', but found ");
             }
 
             boolean ethrow = true;
 
             if (index >= tokens.length) {
-                if (matcher.options.length == 0 && !matcher.expectString)
+                if (matcher.options != null && matcher.options.length == 0 && !matcher.expectString)
                     ethrow = false;
-                else
-                    expectMsg.append("but found EOL instead");
+                expectMsg.append("but found EOL instead");
             } else if (matcher.expectString) {
-                if (tokens[index].isString())
-                    ethrow = false;
-                else
-                    expectMsg.append("'").append(tokens[index].content()).append("' instead");
+                expectMsg.append("'").append(tokens[index].content()).append("' instead");
+                ethrow = !tokens[index].isString();
+            } else if (matcher.anyOption) {
+                ethrow = false;
             } else if (matcher.options.length == 0) {
                 expectMsg.append("'").append(tokens[index].content()).append("' instead");
-            } else if (Arrays.asList(matcher.options).contains(tokens[index].content())) {
-                if (matcher.anyOption)
-                    ethrow = false;
-                else
-                    expectMsg.append("'").append(tokens[index].content()).append("' instead");
+            } else if (!Arrays.asList(matcher.options).contains(tokens[index].content())) {
+                expectMsg.append("'").append(tokens[index].content()).append("' instead");
             } else {
                 ethrow = false;
             }
@@ -91,8 +88,8 @@ public class JILInterpreter {
             else if (end < start - 1)
                 end = start + 1;
 
-            for (int i = start; i < end && i < matchers.length; i++) {
-                String res = check(i, matchers[i]);
+            for (int i = 0; i + start < end; i++) {
+                String res = check(i + start, matchers[i]);
                 if (res != null) return res;
             }
 
@@ -119,7 +116,11 @@ public class JILInterpreter {
         funcs = new HashMap<>();
     }
 
-    private JILToken[][] tokenize(String text) throws JILException {
+    public JILMemory.MemoryDebug memoryDebug() {
+        return memory.debug;
+    }
+
+    public JILToken[][] tokenize(String text) throws JILException {
         ArrayList<JILToken[]> lines = new ArrayList<>();
 
         int ln = 1;
@@ -162,13 +163,44 @@ public class JILInterpreter {
         return lines.toArray(new JILToken[0][]);
     }
 
-    public final void setVar(String name, int val, boolean define) throws JILException {
+    public final void setRawVar(String name, int val, boolean define) throws JILException {
         if (define && vars.containsKey(name))
             throw new JILException(String.format("cannot redefine existing variable '%s'", name));
         else if (!define && !vars.containsKey(name))
             throw new JILException("variable '" + name + "' does not exist");
 
         vars.put(name, val);
+    }
+
+    public final void setRawVar(String name, int val) throws JILException {
+        setRawVar(name, val, !vars.containsKey(name));
+    }
+
+    public final int getRawVar(String name) throws JILException {
+        if (!vars.containsKey(name))
+            throw new JILException("variable '" + name + "' does not exist");
+
+        return vars.get(name);
+    }
+
+    public final void setVar(String name, int val, boolean define) throws JILException {
+        if (define) {
+            int ptr = memory.malloc(1);
+            memory.deref(ptr, val);
+            setRawVar(name, ptr, true);
+        } else {
+            int ptr = getRawVar(name);
+            memory.deref(ptr, val);
+        }
+    }
+
+    public final void setVar(String name, int val) throws JILException {
+        setVar(name, val, !vars.containsKey(name));
+    }
+
+    public final int getVar(String name) throws JILException {
+        int ptr = getRawVar(name);
+        return memory.deref(ptr);
     }
 
     public final void defFunc(String name, JILFunction f) throws JILException {
@@ -183,13 +215,6 @@ public class JILInterpreter {
             throw new JILException("function '" + name + "' does not exist");
 
         return funcs.get(name);
-    }
-
-    public final int getVar(String name) throws JILException {
-        if (!vars.containsKey(name))
-            throw new JILException("variable '" + name + "' does not exist");
-
-        return vars.get(name);
     }
 
     public final void loadModule(String path) throws JILException {
@@ -223,8 +248,14 @@ public class JILInterpreter {
         }
 
         for (Method m : cls.getMethods()) {
-            if (m.getName().startsWith(modclass + "."))
-                defFunc(m.getName(), new JILFunction(m));
+            JILNative jilNative = m.getAnnotation(JILNative.class);
+
+            if (jilNative != null) {
+                String fname = jilNative.value().trim();
+                if (fname.isBlank() || fname.isEmpty()) fname = m.getName();
+
+                defFunc(fname, new JILFunction(m));
+            }
         }
     }
 
@@ -276,11 +307,7 @@ public class JILInterpreter {
                         estack.add((int)Math.pow((double)estack.pop(), (double)b));
                     }
                     default -> {
-                        if (vars.containsKey(t.content())) {
-                            estack.push(vars.get(t.content()));
-                        } else {
-
-                        }
+                        estack.push(getVar(t.content()));
                     }
                 }
             }
@@ -323,6 +350,7 @@ public class JILInterpreter {
                         } else {
                             throw new JILException(String.format("module '%s' not found", modPath));
                         }
+
                         ln++;
                     }
                     case "f" -> {
@@ -330,14 +358,16 @@ public class JILInterpreter {
                             throw new JILException("cannot define a function inside of a function");
 
                         String res = tc.check(1, TokenChecker.TMatcher.any());
-                        if (res != null) throw new JILException(res);
+                        if (res != null)
+                            throw new JILException(res);
 
                         ln++;
                     }
-                    case "def", "defptr" -> {
+                    case "def" -> {
                         inFnChecker.check();
                         String res = tc.check(1, TokenChecker.TMatcher.any());
-                        if (res != null) throw new JILException(res);
+                        if (res != null)
+                            throw new JILException(res);
 
                         String name = tl[1].content();
 
@@ -346,36 +376,57 @@ public class JILInterpreter {
 
                         res = tc.check(2, TokenChecker.TMatcher.str());
                         int varValue = 0;
+
                         if (res == null) {
-                            String s = tl[2].content();
-                            int ptr = memory.malloc(s.length());
-                            memory.derefString(ptr, s);
+                            String str = tl[2].content();
+                            int ptr = memory.malloc(str.length());
+                            memory.derefString(ptr, str);
+                            setRawVar(name, ptr, true);
                         } else {
-                            varValue = eval(Arrays.copyOfRange(tl, 2, tl.length));
+                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length));
+                            setVar(name, evalRes, true);
                         }
 
-                        if (tl[0].content().endsWith("ptr")) {
-                            int subPtr = memory.malloc(1);
-                            memory.deref(subPtr, varValue);
-                            varValue = subPtr;
-                        }
-
-                        setVar(name, varValue, true);
+                        ln++;
+                    }
+                    case "defptr" -> {
                         ln++;
                     }
                     case "call" -> {
                         inFnChecker.check();
 
-                        String res = tc.check(1, TokenChecker.TMatcher.any());
+                        String res = tc.checkAll(1, 4, TokenChecker.TMatcher.opt("into"), TokenChecker.TMatcher.any(), TokenChecker.TMatcher.any());
 
                         String fname;
-                        String outputVar = null;
+                        int argOffset = 2;
+                        int[] args;
+                        String outVar = null;
                         if (res == null) {
-
+                            fname = tl[3].content();
+                            outVar = tl[2].content();
+                            argOffset = 4;
                         } else {
-                            String res2 = tc.checkAll(1, 3, TokenChecker.TMatcher.opt("into"), TokenChecker.TMatcher.any());
-                            if (res2 != null) throw new JILException(res);
+                            String res2 = tc.check(1, TokenChecker.TMatcher.any());
+                            if (res2 != null)
+                                throw new JILException(res2);
+
+                            fname = tl[1].content();
                         }
+
+                        JILToken[] tArgs = Arrays.copyOfRange(tl, argOffset, tl.length);
+                        args = new int[tArgs.length];
+
+                        for (int i = 0; i < tArgs.length; i++)
+                            args[i] = getRawVar(tArgs[i].content());
+
+                        JILFunction f = getFunc(fname);
+
+                        int ret = f.run(file, memory, args);
+
+                        if (outVar != null)
+                            setVar(outVar, ret);
+
+                        ln++;
                     }
                     default -> throw new JILException(String.format("unexpected token '%s'", tl[0].content()));
                 }
