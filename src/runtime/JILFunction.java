@@ -22,7 +22,7 @@ public class JILFunction {
             throw new JILException(String.format("imported function '%s' does not return a JILReturn record", builtin.getName()));
 
         if (builtin.getParameterCount() < 2)
-            throw new JILException(String.format("imported function '%s'", builtin.getName()));
+            throw new JILException(String.format("imported function '%s' must have at least two parameters", builtin.getName()));
 
         Class<?>[] params = builtin.getParameterTypes();
         for (int i = 0; i < params.length; i++) {
@@ -44,15 +44,16 @@ public class JILFunction {
 
     public int run(String file, JILMemory outerMemory, HashMap<String, JILFunction> funcs, int ...args) throws JILException {
         if (builtin != null) {
-            if (args.length < argc - 1)
+            if (args.length < argc - 2)
                 throw new JILException(String.format("not enough arguments; expected %d, but %d were given", argc, args.length));
-            else if (args.length > argc - 1)
+            else if (args.length > argc - 2)
                 throw new JILException(String.format("too many enough arguments; expected %d, but %d were given", argc, args.length));
 
-            Object[] finalArgs = new Object[args.length + 1];
+            Object[] finalArgs = new Object[args.length + 2];
             finalArgs[0] = outerMemory;
+            finalArgs[1] = funcs;
             for (int i = 0; i < args.length; i++) {
-                finalArgs[i + 1] = args[i];
+                finalArgs[i + 2] = args[i];
             }
 
             try {

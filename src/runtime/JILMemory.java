@@ -85,7 +85,8 @@ public class JILMemory {
     }
 
     private void clear(int start, int end) {
-        for (int i = start; i != end; i++) memory[i] = 0;
+        for (int i = start; i != end; i++)
+            memory[i] = 0;
     }
 
     private int generateID() {

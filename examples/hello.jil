@@ -2,5 +2,5 @@ import "std/IO"
 
 fun main
   def msg "hello there."
-  call println msg
+  call printsln msg
 end
