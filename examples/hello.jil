@@ -1,7 +1,6 @@
 import "std/IO"
 
 fun main
-  s
   def msg "hello there."
   call printsln msg
-end
+endg
