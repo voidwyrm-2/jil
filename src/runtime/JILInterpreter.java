@@ -1,5 +1,9 @@
 package runtime;
 
+import lexer.Lexer;
+import lexer.Token;
+import lexer.TokenType;
+
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
@@ -16,7 +20,7 @@ public class JILInterpreter {
     private final HashMap<String, Integer> vars;
     private final HashMap<String, JILFunction> funcs;
 
-    private record TokenChecker(JILToken[] tokens) {
+    private record TokenChecker(Token[] tokens) {
         static class TMatcher {
             boolean expectString, anyOption;
             String[] options;
@@ -68,7 +72,7 @@ public class JILInterpreter {
                 expectMsg.append("but found EOL instead");
             } else if (matcher.expectString) {
                 expectMsg.append("'").append(tokens[index].content()).append("' instead");
-                ethrow = !tokens[index].isString();
+                ethrow = !tokens[index].is(TokenType.String);
             } else if (matcher.anyOption) {
                 ethrow = false;
             } else if (matcher.options.length == 0) {
@@ -128,47 +132,6 @@ public class JILInterpreter {
 
     public JILMemory.MemoryDebug memoryDebug() {
         return memory.debug;
-    }
-
-    public JILToken[][] tokenize(String text) throws JILException {
-        ArrayList<JILToken[]> lines = new ArrayList<>();
-
-        int ln = 1;
-        for (String line : text.split("\n")) {
-            ArrayList<JILToken> tokens = new ArrayList<>();
-            StringBuilder acc = null;
-
-            for (String t : line.trim().split(" ")) {
-                t = t.trim();
-
-                if (t.startsWith("\"") && acc == null) {
-                    acc = new StringBuilder();
-                    t = t.substring(1);
-                }
-
-                if (acc != null) {
-                    if (t.endsWith("\"")) {
-                        // TODO: add a string parser to convert escape sequences
-                        acc.append(t, 0, t.length() - 1);
-                        tokens.add(new JILToken(acc.toString(), true));
-                        acc = null;
-                        continue;
-                    }
-                    acc.append(t).append(" ");
-                } else if (!line.trim().isEmpty()) {
-                    tokens.add(new JILToken(t, false));
-                }
-            }
-
-            if (acc != null)
-                throw new JILException(String.format("error on line %d: unterminated string literal", ln));
-
-            if (!tokens.isEmpty())
-                lines.add(tokens.toArray(new JILToken[0]));
-            ln++;
-        }
-
-        return lines.toArray(new JILToken[0][]);
     }
 
     public final void setRawVar(String name, int val, boolean define) throws JILException {
@@ -271,11 +234,11 @@ public class JILInterpreter {
         }
     }
 
-    public final int eval(JILToken[] tokens) throws JILException {
+    public final int eval(Token[] tokens) throws JILException {
         Stack<Integer> estack = new Stack<>();
 
-        for (JILToken t : tokens) {
-            if (t.isString())
+        for (Token t : tokens) {
+            if (t.is(TokenType.String))
                 throw new JILException("cannot use strings in expressions");
 
             try {
@@ -339,16 +302,19 @@ public class JILInterpreter {
         return mainf.run("main", memory, funcs, args);
     }
 
-    public int execute(String file, boolean inFunction, JILToken[][] tokenLines) throws JILException {
+    public int execute(String file, boolean inFunction, Token[][] tokenLines) throws JILException {
         int ln = 0;
+        Token ct = null;
 
         try {
             while (ln < tokenLines.length) {
-                JILToken[] tl = tokenLines[ln];
+                Token[] tl = tokenLines[ln];
                 TokenChecker tc = new TokenChecker(tl);
                 InFnChecker inFnChecker = new InFnChecker(inFunction, tl[0].content());
 
-                if (tl[0].isString())
+                ct = tl[0];
+
+                if (tl[0].is(TokenType.String))
                     throw new JILException("unexpected string");
 
                 switch (tl[0].content()) {
@@ -395,11 +361,11 @@ public class JILInterpreter {
                             }
                         }
 
-                        ArrayList<JILToken[]> acc = new ArrayList<>();
+                        ArrayList<Token[]> acc = new ArrayList<>();
 
                         int seek = ln + 1;
                         while (seek < tokenLines.length) {
-                            JILToken[] subTL = tokenLines[seek];
+                            Token[] subTL = tokenLines[seek];
                             TokenChecker subTC = new TokenChecker(subTL);
 
                             res = subTC.checkAll(0, TokenChecker.TMatcher.opt("end"));
@@ -414,7 +380,7 @@ public class JILInterpreter {
                             seek++;
                         }
 
-                        defFunc(name, new JILFunction(acc.toArray(new JILToken[0][]), argc));
+                        defFunc(name, new JILFunction(acc.toArray(new Token[0][]), argc));
 
                         ln = seek;
 
@@ -481,7 +447,7 @@ public class JILInterpreter {
                             fname = tl[1].content();
                         }
 
-                        JILToken[] tArgs = Arrays.copyOfRange(tl, argOffset, tl.length);
+                        Token[] tArgs = Arrays.copyOfRange(tl, argOffset, tl.length);
                         args = new int[tArgs.length];
 
                         for (int i = 0; i < tArgs.length; i++)
@@ -509,13 +475,14 @@ public class JILInterpreter {
                 }
             }
         } catch (JILException e) {
-            throw new JILException(String.format("error on line %d of %s:\n%s", ln + 1, file, e.getMessage()));
+            String[] s = ct.format(e.getMessage()).split(":", 2);
+            throw new JILException(s[0] + " of " + file + ":" + s[1]);
         }
 
         return 0;
     }
 
     public int execute(String file, boolean inFunction, String text) throws JILException {
-        return execute(file, inFunction, tokenize(text));
+        return execute(file, inFunction, new Lexer(text).lex());
     }
 }

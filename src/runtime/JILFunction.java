@@ -1,18 +1,19 @@
 package runtime;
 
+import lexer.Token;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.Arrays;
 import java.util.HashMap;
 
 public class JILFunction {
-    JILToken[][] tokens;
+    Token[][] tokens;
     int argc;
     Method builtin = null;
 
-    public JILFunction(JILToken[][] tokens, int argc) {
+    public JILFunction(Token[][] tokens, int argc) {
         this.tokens = tokens;
         this.argc = argc;
     }
