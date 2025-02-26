@@ -1,3 +1,5 @@
+package runtime;
+
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
@@ -95,6 +97,14 @@ public class JILInterpreter {
 
             return null;
         }
+
+        private String checkAll(int start, TMatcher... matchers) {
+            return checkAll(start, tokens.length, matchers);
+        }
+
+        private String checkAll(TMatcher... matchers) {
+            return checkAll(0, matchers);
+        }
     }
 
     private record InFnChecker(boolean inFunction, String operation) {
@@ -104,16 +114,16 @@ public class JILInterpreter {
         }
     }
 
-    public JILInterpreter(Integer memorySize) throws JILException {
+    public JILInterpreter(Integer memorySize) {
         memory = new JILMemory(memorySize);
         vars = new HashMap<>();
         funcs = new HashMap<>();
     }
 
-    public JILInterpreter(JILMemory outerMemory) {
+    public JILInterpreter(JILMemory outerMemory, HashMap<String, JILFunction> funcs) {
         memory = outerMemory;
         vars = new HashMap<>();
-        funcs = new HashMap<>();
+        this.funcs = funcs;
     }
 
     public JILMemory.MemoryDebug memoryDebug() {
@@ -128,10 +138,9 @@ public class JILInterpreter {
             ArrayList<JILToken> tokens = new ArrayList<>();
             StringBuilder acc = null;
 
-            if (line.trim().isEmpty())
-                continue;
+            for (String t : line.trim().split(" ")) {
+                t = t.trim();
 
-            for (String t : line.split(" ")) {
                 if (t.startsWith("\"") && acc == null) {
                     acc = new StringBuilder();
                     t = t.substring(1);
@@ -146,9 +155,7 @@ public class JILInterpreter {
                         continue;
                     }
                     acc.append(t).append(" ");
-                } else if (t.contains("//")) {
-                    break;
-                } else {
+                } else if (!line.trim().isEmpty()) {
                     tokens.add(new JILToken(t, false));
                 }
             }
@@ -156,7 +163,8 @@ public class JILInterpreter {
             if (acc != null)
                 throw new JILException(String.format("error on line %d: unterminated string literal", ln));
 
-            lines.add(tokens.toArray(new JILToken[0]));
+            if (!tokens.isEmpty())
+                lines.add(tokens.toArray(new JILToken[0]));
             ln++;
         }
 
@@ -217,6 +225,10 @@ public class JILInterpreter {
         return funcs.get(name);
     }
 
+    public final JILFunction getFuncUnguarded(String name) {
+        return funcs.get(name);
+    }
+
     public final void loadModule(String path) throws JILException {
         loadModule(new File(path));
     }
@@ -225,9 +237,8 @@ public class JILInterpreter {
         String[] spath = path.getAbsolutePath().split(Pattern.quote(File.separator));
 
         String modclass = spath[spath.length - 1];
-        if (modclass.endsWith(".class")) {
+        if (modclass.endsWith(".class"))
             modclass = modclass.substring(0, modclass.length() - 6);
-        }
 
         File modpath = new File(String.join("/", Arrays.copyOf(spath, spath.length - 1)));
 
@@ -252,7 +263,8 @@ public class JILInterpreter {
 
             if (jilNative != null) {
                 String fname = jilNative.value().trim();
-                if (fname.isBlank() || fname.isEmpty()) fname = m.getName();
+                if (fname.isBlank() || fname.isEmpty())
+                    fname = m.getName();
 
                 defFunc(fname, new JILFunction(m));
             }
@@ -319,6 +331,14 @@ public class JILInterpreter {
         return estack.pop();
     }
 
+    public int runMain(int... args) throws JILException {
+        JILFunction mainf = getFuncUnguarded("main");
+        if (mainf == null)
+            throw new JILException("function 'main' not found");
+
+        return mainf.run("main", memory, funcs, args);
+    }
+
     public int execute(String file, boolean inFunction, JILToken[][] tokenLines) throws JILException {
         int ln = 0;
 
@@ -332,12 +352,14 @@ public class JILInterpreter {
                     throw new JILException("unexpected string");
 
                 switch (tl[0].content()) {
+                    case "rem" -> ln++;
                     case "import" -> {
                         if (inFunction)
                             throw new JILException("cannot import a module inside of a function");
 
                         String res = tc.check(1, TokenChecker.TMatcher.str());
-                        if (res != null) throw new JILException(res);
+                        if (res != null)
+                            throw new JILException(res);
 
                         String modPath = tl[1].content();
                         File libModule = new File(System.getProperty("user.home") + File.separator + "jil" + File.separator + "lib" + File.separator + modPath + ".class");
@@ -351,9 +373,9 @@ public class JILInterpreter {
                             throw new JILException(String.format("module '%s' not found", modPath));
                         }
 
-                        ln++;
+                            ln++;
                     }
-                    case "f" -> {
+                    case "fun" -> {
                         if (inFunction)
                             throw new JILException("cannot define a function inside of a function");
 
@@ -361,10 +383,58 @@ public class JILInterpreter {
                         if (res != null)
                             throw new JILException(res);
 
+                        String res2 = tc.check(2, TokenChecker.TMatcher.any());
+
+                        String name = tl[1].content();
+                        int argc = 0;
+                        if (res2 == null) {
+                            try {
+                                argc = Integer.parseInt(tl[2].content());
+                            } catch (NumberFormatException e) {
+                                throw new JILException("function argument count must be a number");
+                            }
+                        }
+
+                        ArrayList<JILToken[]> acc = new ArrayList<>();
+
+                        int seek = ln + 1;
+                        while (seek < tokenLines.length) {
+                            JILToken[] subTL = tokenLines[seek];
+                            TokenChecker subTC = new TokenChecker(subTL);
+
+                            res = subTC.checkAll(0, TokenChecker.TMatcher.opt("end"));
+                            if (res == null)
+                                break;
+
+                            if (seek == tokenLines.length - 1)
+                                throw new JILException("unterminated function definition");
+
+                            acc.add(subTL);
+
+                            seek++;
+                        }
+
+                        defFunc(name, new JILFunction(acc.toArray(new JILToken[0][]), argc));
+
+                        ln = seek;
+
+                        ln++;
+                    }
+                    case "struct" -> {
+                        if (inFunction)
+                            throw new JILException("cannot define a struct inside of a function");
+
+                        String res = tc.check(1, TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String name = tl[1].content();
+
                         ln++;
                     }
                     case "def" -> {
                         inFnChecker.check();
+
                         String res = tc.check(1, TokenChecker.TMatcher.any());
                         if (res != null)
                             throw new JILException(res);
@@ -375,8 +445,6 @@ public class JILInterpreter {
                             throw new JILException("expected expression, but found EOL instead");
 
                         res = tc.check(2, TokenChecker.TMatcher.str());
-                        int varValue = 0;
-
                         if (res == null) {
                             String str = tl[2].content();
                             int ptr = memory.malloc(str.length());
@@ -421,12 +489,21 @@ public class JILInterpreter {
 
                         JILFunction f = getFunc(fname);
 
-                        int ret = f.run(file, memory, args);
+                        int ret = f.run(fname, memory, funcs, args);
 
                         if (outVar != null)
                             setVar(outVar, ret);
 
                         ln++;
+                    }
+                    case "ret" -> {
+                        inFnChecker.check();
+
+                        String res = tc.check(1, TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        return getRawVar(tl[1].content());
                     }
                     default -> throw new JILException(String.format("unexpected token '%s'", tl[0].content()));
                 }

@@ -1,3 +1,5 @@
+package runtime;
+
 import java.util.Arrays;
 import java.util.HashMap;
 
@@ -62,7 +64,7 @@ public class JILMemory {
         }
     }
 
-    public JILMemory(int size) throws JILException {
+    public JILMemory(int size) {
         memory = new int[size];
         allocations = new HashMap<>();
         allocatedSpace = 0;

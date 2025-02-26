@@ -1,7 +1,11 @@
+package runtime;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.Arrays;
-import java.util.Objects;
+import java.util.HashMap;
 
 public class JILFunction {
     JILToken[][] tokens;
@@ -17,22 +21,28 @@ public class JILFunction {
         if (!builtin.getReturnType().equals(int.class))
             throw new JILException(String.format("imported function '%s' does not return a JILReturn record", builtin.getName()));
 
-        int i = 1;
-        for (Class<?> param : builtin.getParameterTypes()) {
-            if (i == 1) {
-                if (!param.equals(JILMemory.class))
-                    throw new JILException(String.format("argument %d from imported function '%s' is not of the type JILMemory", i, builtin.getName()));
-            } else if (!param.equals(int.class)) {
-                throw new JILException(String.format("argument %d from imported function '%s' is not of the type JILMemory", i, builtin.getName()));
+        if (builtin.getParameterCount() < 2)
+            throw new JILException(String.format("imported function '%s'", builtin.getName()));
+
+        Class<?>[] params = builtin.getParameterTypes();
+        for (int i = 0; i < params.length; i++) {
+            if (i == 0) {
+                if (!params[i].equals(JILMemory.class))
+                    throw new JILException(String.format("argument %d from imported function '%s' is not a JILMemory", i, builtin.getName()));
+            } else if (i == 1) {
+                Type[] generics = ((ParameterizedType) builtin.getGenericParameterTypes()[i]).getActualTypeArguments();
+                if (!params[i].equals(HashMap.class) || !generics[0].getTypeName().equals("java.lang.String") || !generics[1].getTypeName().equals("runtime.JILFunction"))
+                    throw new JILException(String.format("argument %d from imported function '%s' is not a Hashmap<String, JILFunction>", i, builtin.getName()));
+            } else if (!params[i].equals(int.class)) {
+                throw new JILException(String.format("argument %d from imported function '%s' is not an int", i, builtin.getName()));
             }
-            i++;
         }
 
         argc = builtin.getParameterCount();
         this.builtin = builtin;
     }
 
-    public int run(String file, JILMemory outerMemory, int ...args) throws JILException {
+    public int run(String file, JILMemory outerMemory, HashMap<String, JILFunction> funcs, int ...args) throws JILException {
         if (builtin != null) {
             if (args.length < argc - 1)
                 throw new JILException(String.format("not enough arguments; expected %d, but %d were given", argc, args.length));
@@ -67,7 +77,7 @@ public class JILFunction {
                 }
             }
         } else {
-            JILInterpreter interpreter = new JILInterpreter(outerMemory);
+            JILInterpreter interpreter = new JILInterpreter(outerMemory, funcs);
             return interpreter.execute(file, true, tokens);
         }
     }

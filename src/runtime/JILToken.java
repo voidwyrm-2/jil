@@ -1,3 +1,5 @@
+package runtime;
+
 public record JILToken(String content, boolean isString) {
     @Override
     public String toString() {

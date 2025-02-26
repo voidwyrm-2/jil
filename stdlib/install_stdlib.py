@@ -4,10 +4,13 @@ from pathlib import Path
 import subprocess
 
 def check_path(p: Path):
-    if not p.exists() or not p.is_dir():
-        if not p.is_dir():
-            os.remove(str(p))
-        os.mkdir(str(p))
+    ps = str(p)
+    if not p.exists():
+        os.mkdir(ps)
+    elif not p.is_dir():
+        os.remove(ps)
+        os.mkdir(ps)
+
 
 iswindows = platform.platform() == "win32"
 
@@ -25,7 +28,15 @@ check_path(std)
 
 comp = []
 for f in current.iterdir():
-    if f.is_file() and f.name.split(os.extsep)[-1] == "java":
-        ex = subprocess.run([py_command, "build_module.py", "-f", f.name, "-i"])
-        if ex.returncode:
-            print(ex.stderr)
+    if f.is_file():
+        ext = f.name.split(os.extsep)[-1].lower()
+        if ext == "java":
+            ex = subprocess.run([py_command, "build_module.py", "-f", f.name, "-i"])
+            if ex.returncode:
+                print(ex.stderr)
+        elif ext == "jil":
+            with open(f, "rb") as inf:
+                content = inf.read()
+
+            with open(Path(std, f.name), "wb") as ouf:
+                ouf.write(content)
