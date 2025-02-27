@@ -1,0 +1,16 @@
+import "std/IO"
+import "std/Mem"
+
+fun main
+  def size 10
+
+  call intop allocated malloc size
+
+  call into realSize sizeOfPointer allocated
+
+  call println realSize
+
+  call free size
+  call free allocated
+  call free realSize
+end

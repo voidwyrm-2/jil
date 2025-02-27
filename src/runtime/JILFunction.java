@@ -1,11 +1,14 @@
 package runtime;
 
 import lexer.Token;
+import runtime.errors.JILException;
+import runtime.errors.JILNativeException;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.Arrays;
 import java.util.HashMap;
 
 public class JILFunction {
@@ -25,6 +28,11 @@ public class JILFunction {
         if (builtin.getParameterCount() < 2)
             throw new JILException(String.format("imported function '%s' must have at least two parameters", builtin.getName()));
 
+        Class<?>[] exceptions = builtin.getExceptionTypes();
+        if (exceptions.length != 2 || !exceptions[0].equals(JILException.class) || !exceptions[1].equals(JILNativeException.class)) {
+            throw new JILException(String.format("imported function '%s' must throw two exceptions of the JILException and JILNativeException classes in that order", builtin.getName()));
+        }
+
         Class<?>[] params = builtin.getParameterTypes();
         for (int i = 0; i < params.length; i++) {
             if (i == 0) {
@@ -32,7 +40,7 @@ public class JILFunction {
                     throw new JILException(String.format("argument %d from imported function '%s' is not a JILMemory", i, builtin.getName()));
             } else if (i == 1) {
                 Type[] generics = ((ParameterizedType) builtin.getGenericParameterTypes()[i]).getActualTypeArguments();
-                if (!params[i].equals(HashMap.class) || !generics[0].getTypeName().equals("java.lang.String") || !generics[1].getTypeName().equals("runtime.JILFunction"))
+                if (!params[i].equals(HashMap.class) || !generics[0].getTypeName().equals(String.class.getTypeName()) || !generics[1].getTypeName().equals(JILFunction.class.getTypeName()))
                     throw new JILException(String.format("argument %d from imported function '%s' is not a Hashmap<String, JILFunction>", i, builtin.getName()));
             } else if (!params[i].equals(int.class)) {
                 throw new JILException(String.format("argument %d from imported function '%s' is not an int", i, builtin.getName()));
@@ -43,7 +51,7 @@ public class JILFunction {
         this.builtin = builtin;
     }
 
-    public int run(String file, JILMemory outerMemory, HashMap<String, JILFunction> funcs, int ...args) throws JILException {
+    public int run(String file, int showVars, JILMemory outerMemory, HashMap<String, JILFunction> funcs, int ...args) throws JILException {
         if (builtin != null) {
             if (args.length < argc - 2)
                 throw new JILException(String.format("not enough arguments; expected %d, but %d were given", argc, args.length));
@@ -66,6 +74,8 @@ public class JILFunction {
                 if (cause != null) {
                     if (cause.getClass().equals(JILException.class)) {
                         throw (JILException)cause;
+                    } else if (cause.getClass().equals(JILNativeException.class)) {
+                        throw (JILNativeException)cause;
                     } else {
                         StackTraceElement[] trace = cause.getStackTrace();
                         String[] stringTrace = new String[trace.length];
@@ -80,7 +90,15 @@ public class JILFunction {
             }
         } else {
             JILInterpreter interpreter = new JILInterpreter(outerMemory, funcs);
-            return interpreter.execute(file, true, tokens);
+            for (int i = 0; i < args.length; i++)
+                interpreter.setVar("$" + i, args[i], true);
+
+            return interpreter.execute(file, showVars, true, tokens);
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("fun(%d)", builtin != null ? argc - 2 : argc);
     }
 }

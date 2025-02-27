@@ -1,8 +1,9 @@
 package lexer;
 
-import runtime.JILException;
+import runtime.errors.JILException;
 
 import java.util.ArrayList;
+import java.util.Objects;
 
 public class Lexer {
     private final String text;
@@ -31,6 +32,10 @@ public class Lexer {
 
         private void advance() {
             advance(1);
+        }
+
+        private Character peek() {
+            return idx + 1 < line.length() ? line.charAt(idx + 1) : null;
         }
 
         private Token collectString() throws LexerException {
@@ -93,6 +98,8 @@ public class Lexer {
                         acc = null;
                     }
                     advance();
+                } else if (ch == '/' && Objects.equals(peek(), '/')) {
+                    break;
                 } else {
                     if (acc == null) {
                         start = col;

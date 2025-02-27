@@ -3,6 +3,7 @@ import platform
 from pathlib import Path
 import subprocess
 
+
 def check_path(p: Path):
     ps = str(p)
     if not p.exists():
@@ -12,7 +13,7 @@ def check_path(p: Path):
         os.mkdir(ps)
 
 
-iswindows = platform.platform() == "win32"
+iswindows = "windows" in platform.platform().lower()
 
 homedir = os.environ["userprofile"] if iswindows else os.environ["HOME"]
 py_command = "python" if iswindows else "python3"

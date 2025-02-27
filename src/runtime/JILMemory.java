@@ -1,5 +1,7 @@
 package runtime;
 
+import runtime.errors.JILException;
+
 import java.util.Arrays;
 import java.util.HashMap;
 
@@ -105,7 +107,17 @@ public class JILMemory {
         if (third == 0)
             third = 1;
 
-        return (((first << second) / third) * first) / (third & first);
+        int pt1 = first << second;
+        if (pt1 == 0)
+            pt1 = 1;
+        int pt2 = pt1 / third * first;
+        if (pt2 == 0)
+            pt2 = 1;
+        int pt3 = third & first;
+        if (pt3 == 0)
+            pt3 = 1;
+
+        return pt2 / pt3;
     }
 
     private void checkID(int id) throws JILException {

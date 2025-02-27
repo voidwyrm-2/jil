@@ -1,0 +1,24 @@
+import "std/IO"
+import "std/Mem"
+
+fun main
+  def msg "there was no error"
+  def emsg "there was an error!"
+
+  def n 20
+  call println n
+
+  call free n
+
+  catch errlab
+    // this would jump to `errlab`, since it's already freed
+    // call free n
+  endcatch
+
+  call printsln msg
+  ret 0
+
+  lbl errlab
+    call printsln emsg
+    ret 1
+end

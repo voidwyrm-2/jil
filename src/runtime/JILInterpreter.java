@@ -3,6 +3,8 @@ package runtime;
 import lexer.Lexer;
 import lexer.Token;
 import lexer.TokenType;
+import runtime.errors.JILException;
+import runtime.errors.JILNativeException;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -130,8 +132,12 @@ public class JILInterpreter {
         this.funcs = funcs;
     }
 
-    public JILMemory.MemoryDebug memoryDebug() {
+    public final JILMemory.MemoryDebug memoryDebug() {
         return memory.debug;
+    }
+
+    public final HashMap<String, Integer> getVars() {
+        return (HashMap<String, Integer>) vars.clone();
     }
 
     public final void setRawVar(String name, int val, boolean define) throws JILException {
@@ -172,6 +178,10 @@ public class JILInterpreter {
     public final int getVar(String name) throws JILException {
         int ptr = getRawVar(name);
         return memory.deref(ptr);
+    }
+
+    public final HashMap<String, JILFunction> getFuncs() {
+        return (HashMap<String, JILFunction>) funcs.clone();
     }
 
     public final void defFunc(String name, JILFunction f) throws JILException {
@@ -234,7 +244,7 @@ public class JILInterpreter {
         }
     }
 
-    public final int eval(Token[] tokens) throws JILException {
+    public final int eval(Token[] tokens, boolean rawMode) throws JILException {
         Stack<Integer> estack = new Stack<>();
 
         for (Token t : tokens) {
@@ -342,7 +352,7 @@ public class JILInterpreter {
                         estack.add(estack.pop() == 0 ? 1 : 0);
                     }
                     default -> {
-                        estack.push(getVar(t.content()));
+                        estack.push(rawMode ? getRawVar(t.content()) : getVar(t.content()));
                     }
                 }
             }
@@ -354,20 +364,43 @@ public class JILInterpreter {
         return estack.pop();
     }
 
-    public int runMain(int... args) throws JILException {
+    public int runMain(boolean showVars, int... args) throws JILException {
         JILFunction mainf = getFuncUnguarded("main");
         if (mainf == null)
             throw new JILException("function 'main' not found");
 
-        return mainf.run("main", memory, funcs, args);
+        return mainf.run("main", showVars ? 1 : 0, memory, funcs, args);
     }
 
-    public int execute(String file, boolean inFunction, Token[][] tokenLines) throws JILException {
+    public int execute(String file, int showVars, boolean inFunction, Token[][] tokenLines) throws JILException {
         HashMap<String, Integer> labels = new HashMap<>();
         int ln = 0;
         Token ct = null;
+        Stack<String> catcherLabels = new Stack<>();
 
         try {
+            if (inFunction) {
+                for (int i = 0; i < tokenLines.length; i++) {
+                    Token[] tl = tokenLines[i];
+                    TokenChecker tc = new TokenChecker(tl);
+
+                    ct = tl[0];
+
+                    if (tl[0].is("lbl")) {
+                        String res = tc.checkAll(TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String label = tl[1].content();
+
+                        if (labels.containsKey(label))
+                            throw new JILException("cannot redefine label '" + label + "'");
+
+                        labels.put(label, i + 1);
+                    }
+                }
+            }
+
             while (ln < tokenLines.length) {
                 Token[] tl = tokenLines[ln];
                 TokenChecker tc = new TokenChecker(tl);
@@ -380,22 +413,6 @@ public class JILInterpreter {
 
                 switch (tl[0].content()) {
                     case "rem" -> ln++;
-                    case "lbl" -> {
-                        inFnChecker.check();
-
-                        String res = tc.checkAll(TokenChecker.TMatcher.any());
-                        if (res != null)
-                            throw new JILException(res);
-
-                        String label = tl[1].content();
-
-                        if (labels.containsKey(label))
-                            throw new JILException("cannot redefine label '" + label + "'");
-
-                        labels.put(label, ln + 1);
-
-                        ln++;
-                    }
                     case "goto" -> {
                         inFnChecker.check();
 
@@ -489,7 +506,7 @@ public class JILInterpreter {
 
                         ln++;
                     }
-                    case "def" -> {
+                    case "def", "defp" -> {
                         inFnChecker.check();
 
                         String res = tc.check(1, TokenChecker.TMatcher.any());
@@ -507,14 +524,19 @@ public class JILInterpreter {
                             int ptr = memory.malloc(str.length());
                             memory.derefString(ptr, str);
                             setRawVar(name, ptr, true);
+
                         } else {
-                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length));
-                            setVar(name, evalRes, true);
+                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length), tl[0].content().endsWith("p"));
+                            if (tl[0].content().endsWith("p")) {
+                                setRawVar(name, evalRes, true);
+                            } else {
+                                setVar(name, evalRes, true);
+                            }
                         }
 
                         ln++;
                     }
-                    case "set" -> {
+                    case "set", "setp" -> {
                         inFnChecker.check();
 
                         String res = tc.check(1, TokenChecker.TMatcher.any());
@@ -533,8 +555,12 @@ public class JILInterpreter {
                             memory.derefString(ptr, str);
                             setRawVar(name, ptr, false);
                         } else {
-                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length));
-                            setVar(name, evalRes, false);
+                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length), tl[0].content().endsWith("p"));
+                            if (tl[0].content().endsWith("p")) {
+                                setRawVar(name, evalRes, false);
+                            } else {
+                                setVar(name, evalRes, false);
+                            }
                         }
 
                         ln++;
@@ -542,7 +568,7 @@ public class JILInterpreter {
                     case "call" -> {
                         inFnChecker.check();
 
-                        String res = tc.checkAll(1, 4, TokenChecker.TMatcher.opt("into"), TokenChecker.TMatcher.any(), TokenChecker.TMatcher.any());
+                        String res = tc.checkAll(1, 4, TokenChecker.TMatcher.opt("into", "intop"), TokenChecker.TMatcher.any(), TokenChecker.TMatcher.any());
 
                         String fname;
                         int argOffset = 2;
@@ -568,14 +594,28 @@ public class JILInterpreter {
 
                         JILFunction f = getFunc(fname);
 
-                        int ret = f.run(fname, memory, funcs, args);
+                        int ret;
+                        try {
+                            ret = f.run(fname, showVars < 0 ? 0 : showVars - 1, memory, funcs, args);
+                        } catch (JILNativeException e) {
+                            if (!catcherLabels.empty()) {
+                                ln = labels.get(catcherLabels.pop());
+                                continue;
+                            }
+                            throw e;
+                        }
 
-                        if (outVar != null)
-                            setVar(outVar, ret);
+                        if (outVar != null) {
+                            if (tl[1].content().endsWith("p")) {
+                                setRawVar(outVar, ret);
+                            } else {
+                                setVar(outVar, ret);
+                            }
+                        }
 
                         ln++;
                     }
-                    case "ret" -> {
+                    case "ret", "retp" -> {
                         inFnChecker.check();
 
                         if (tl.length == 1)
@@ -589,21 +629,60 @@ public class JILInterpreter {
 
                             return ptr;
                         } else {
-                            return eval(Arrays.copyOfRange(tl, 1, tl.length));
+                            return eval(Arrays.copyOfRange(tl, 1, tl.length), tl[0].content().endsWith("p"));
                         }
                     }
-                    case "if", "ifn" -> {
+                    case "if", "ifn", "ifp", "ifnp" -> {
                         inFnChecker.check();
 
                         if (tl.length == 1)
                             throw new JILException("expected expression, but found EOL instead");
 
-                        boolean cond = eval(Arrays.copyOfRange(tl, 1, tl.length)) != 0;
+                        boolean cond = eval(Arrays.copyOfRange(tl, 1, tl.length), tl[0].content().contains("p")) != 0;
 
-                        if (tl[0].content().endsWith("n"))
+                        if (tl[0].content().contains("n"))
                             cond = !cond;
 
                         ln += cond ? 1 : 2;
+                    }
+                    case "catch" -> {
+                        inFnChecker.check();
+
+                        String res = tc.checkAll(TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String label = tl[1].content();
+
+                        if (!labels.containsKey(label))
+                            throw new JILException("unknown label '" + label + "'");
+
+                        if (catcherLabels.contains(label))
+                            throw new JILException("already in a catch scope with the label '" + label + "'");
+
+                        catcherLabels.push(label);
+
+                        ln++;
+                    }
+                    case "endcatch" -> {
+                        inFnChecker.check();
+
+                        if (catcherLabels.empty())
+                            throw new JILException("cannot use 'endcatch' outside of a catch scope");
+
+                        catcherLabels.pop();
+
+                        ln++;
+                    }
+                    case "endcatches" -> {
+                        inFnChecker.check();
+
+                        if (catcherLabels.empty())
+                            throw new JILException("cannot use 'endcatches' outside of a catch scope");
+
+                        catcherLabels.clear();
+
+                        ln++;
                     }
                     default -> throw new JILException(String.format("unexpected token '%s'", tl[0].content()));
                 }
@@ -613,10 +692,13 @@ public class JILInterpreter {
             throw new JILException(s[0] + " of " + file + ":" + s[1]);
         }
 
+        if (showVars > 0)
+            System.out.println(vars);
+
         return 0;
     }
 
-    public int execute(String file, boolean inFunction, String text) throws JILException {
-        return execute(file, inFunction, new Lexer(text).lex());
+    public int execute(String file, int showVars, boolean inFunction, String text) throws JILException {
+        return execute(file, showVars, inFunction, new Lexer(text).lex());
     }
 }

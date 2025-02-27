@@ -1,4 +1,5 @@
 import "std/IO"
+import "std/Mem"
 
 fun main
   call fizzbuzz
@@ -19,7 +20,7 @@ fun fizzbuzz
     ifn i 5 %
       call prints buzz
 
-    ifn i 3 % i 5 % and !
+    if i 3 % i 5 % and
       call print i
 
     ifn i 99 =
@@ -27,4 +28,9 @@ fun fizzbuzz
 
   if i 100 <
     goto loop
+
+  call free i
+  call free fizz
+  call free buzz
+  call free nl
 end

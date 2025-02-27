@@ -1,7 +1,7 @@
 import argparse.ArgparseException;
 import argparse.Argparser;
 import argparse.Flag;
-import runtime.JILException;
+import runtime.errors.JILException;
 import runtime.JILInterpreter;
 
 import java.io.*;
@@ -11,6 +11,9 @@ public class Main {
         Argparser parser = new Argparser("jil");
 
         Flag<Boolean> help = parser.addFlag("h", false, Boolean::parseBoolean, "Lists the flags of the program");
+        Flag<Boolean> runTests = parser.addFlag("t", false, Boolean::parseBoolean, "Runs the language tests");
+        Flag<Boolean> showVars = parser.addFlag("vars", false, Boolean::parseBoolean, "Prints the variables after execution");
+        Flag<Boolean> showFuncs = parser.addFlag("funcs", false, Boolean::parseBoolean, "Prints the functions after execution");
         Flag<Integer> memorySize = parser.addFlag("m", 0, Integer::parseInt, "The amount of memory the interpreter has");
 
         String[] leftover = new String[0];
@@ -52,9 +55,14 @@ public class Main {
         }
 
         try {
-            interpreter.execute(new File(leftover[0]).getName(), false, content);
+            interpreter.execute(new File(leftover[0]).getName(), 0, false, content);
 
-            System.exit(interpreter.runMain());
+            int code = interpreter.runMain(showVars.get());
+
+            if (showFuncs.get())
+                System.out.println(interpreter.getFuncs());
+
+            System.exit(code);
         } catch (JILException e) {
             System.out.println(e.getMessage());
             System.exit(1);
