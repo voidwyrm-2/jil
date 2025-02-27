@@ -3,4 +3,4 @@ import "std/IO"
 fun main
   def msg "hello there."
   call printsln msg
-endg
+end
