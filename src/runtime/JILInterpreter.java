@@ -107,7 +107,7 @@ public class JILInterpreter {
         }
 
         private String checkAll(TMatcher... matchers) {
-            return checkAll(0, matchers);
+            return checkAll(1, matchers);
         }
     }
 
@@ -241,45 +241,105 @@ public class JILInterpreter {
             if (t.is(TokenType.String))
                 throw new JILException("cannot use strings in expressions");
 
+            JILException n2op = new JILException("expected one operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+
+            JILException n1op = new JILException("expected one operand on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+
             try {
                 estack.add(Integer.parseInt(t.content()));
             } catch (NumberFormatException e) {
                 switch (t.content()) {
                     case "+" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add(estack.pop() + b);
                     }
                     case "-" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add(estack.pop() - b);
                     }
                     case "*" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add(estack.pop() * b);
                     }
                     case "/" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add(estack.pop() / b);
                     }
                     case "%" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add(estack.pop() % b);
                     }
                     case "**" -> {
                         if (estack.size() < 2)
-                            throw new JILException("expected two operands on the stack for '" + t.content() + "', but found " + estack.size() + " instead");
+                            throw n2op;
+
                         Integer b = estack.pop();
                         estack.add((int)Math.pow((double)estack.pop(), (double)b));
+                    }
+                    case "and" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        estack.add(estack.pop() != 0 && b != 0 ? 1 : 0);
+                    }
+                    case "or" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        estack.add(estack.pop() != 0 || b != 0 ? 1 : 0);
+                    }
+                    case "=" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        estack.add(estack.pop().equals(b) ? 1 : 0);
+                    }
+                    case "!=" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        estack.add(estack.pop().equals(b) ? 0 : 1);
+                    }
+                    case ">", ">=" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        Integer a = estack.pop();
+                        estack.add(a > b || (t.content().endsWith("=") && a.equals(b)) ? 1 : 0);
+                    }
+                    case "<", "<=" -> {
+                        if (estack.size() < 2)
+                            throw n2op;
+
+                        Integer b = estack.pop();
+                        Integer a = estack.pop();
+                        estack.add(a < b || (t.content().endsWith("=") && a.equals(b)) ? 1 : 0);
+                    }
+                    case "!" -> {
+                        if (estack.empty())
+                            throw n1op;
+
+                        estack.add(estack.pop() == 0 ? 1 : 0);
                     }
                     default -> {
                         estack.push(getVar(t.content()));
@@ -303,6 +363,7 @@ public class JILInterpreter {
     }
 
     public int execute(String file, boolean inFunction, Token[][] tokenLines) throws JILException {
+        HashMap<String, Integer> labels = new HashMap<>();
         int ln = 0;
         Token ct = null;
 
@@ -319,6 +380,36 @@ public class JILInterpreter {
 
                 switch (tl[0].content()) {
                     case "rem" -> ln++;
+                    case "lbl" -> {
+                        inFnChecker.check();
+
+                        String res = tc.checkAll(TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String label = tl[1].content();
+
+                        if (labels.containsKey(label))
+                            throw new JILException("cannot redefine label '" + label + "'");
+
+                        labels.put(label, ln + 1);
+
+                        ln++;
+                    }
+                    case "goto" -> {
+                        inFnChecker.check();
+
+                        String res = tc.checkAll(TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String label = tl[1].content();
+
+                        if (!labels.containsKey(label))
+                            throw new JILException("unknown label '" + label + "'");
+
+                        ln = labels.get(label);
+                    }
                     case "import" -> {
                         if (inFunction)
                             throw new JILException("cannot import a module inside of a function");
@@ -411,7 +502,7 @@ public class JILInterpreter {
                             throw new JILException("expected expression, but found EOL instead");
 
                         res = tc.check(2, TokenChecker.TMatcher.str());
-                        if (res == null) {
+                        if (res == null && tl.length == 3) {
                             String str = tl[2].content();
                             int ptr = memory.malloc(str.length());
                             memory.derefString(ptr, str);
@@ -423,7 +514,29 @@ public class JILInterpreter {
 
                         ln++;
                     }
-                    case "defptr" -> {
+                    case "set" -> {
+                        inFnChecker.check();
+
+                        String res = tc.check(1, TokenChecker.TMatcher.any());
+                        if (res != null)
+                            throw new JILException(res);
+
+                        String name = tl[1].content();
+
+                        if (tl.length == 2)
+                            throw new JILException("expected expression, but found EOL instead");
+
+                        res = tc.check(2, TokenChecker.TMatcher.str());
+                        if (res == null && tl.length == 3) {
+                            String str = tl[2].content();
+                            int ptr = memory.malloc(str.length());
+                            memory.derefString(ptr, str);
+                            setRawVar(name, ptr, false);
+                        } else {
+                            int evalRes = eval(Arrays.copyOfRange(tl, 2, tl.length));
+                            setVar(name, evalRes, false);
+                        }
+
                         ln++;
                     }
                     case "call" -> {
@@ -465,11 +578,32 @@ public class JILInterpreter {
                     case "ret" -> {
                         inFnChecker.check();
 
-                        String res = tc.check(1, TokenChecker.TMatcher.any());
-                        if (res != null)
-                            throw new JILException(res);
+                        if (tl.length == 1)
+                            throw new JILException("expected expression, but found EOL instead");
 
-                        return getRawVar(tl[1].content());
+                        String res = tc.check(2, TokenChecker.TMatcher.str());
+                        if (res == null && tl.length == 2) {
+                            String str = tl[1].content();
+                            int ptr = memory.malloc(str.length());
+                            memory.derefString(ptr, str);
+
+                            return ptr;
+                        } else {
+                            return eval(Arrays.copyOfRange(tl, 1, tl.length));
+                        }
+                    }
+                    case "if", "ifn" -> {
+                        inFnChecker.check();
+
+                        if (tl.length == 1)
+                            throw new JILException("expected expression, but found EOL instead");
+
+                        boolean cond = eval(Arrays.copyOfRange(tl, 1, tl.length)) != 0;
+
+                        if (tl[0].content().endsWith("n"))
+                            cond = !cond;
+
+                        ln += cond ? 1 : 2;
                     }
                     default -> throw new JILException(String.format("unexpected token '%s'", tl[0].content()));
                 }

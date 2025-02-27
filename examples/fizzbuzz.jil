@@ -1,0 +1,30 @@
+import "std/IO"
+
+fun main
+  call fizzbuzz
+end
+
+fun fizzbuzz
+  def i 0
+  def fizz "fizz"
+  def buzz "buzz"
+  def nl "\n"
+
+  lbl loop
+    set i i 1 +
+
+    ifn i 3 %
+      call prints fizz
+
+    ifn i 5 %
+      call prints buzz
+
+    ifn i 3 % i 5 % and !
+      call print i
+
+    ifn i 99 =
+      call prints nl
+
+  if i 100 <
+    goto loop
+end
