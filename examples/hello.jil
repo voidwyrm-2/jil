@@ -1,6 +1,6 @@
 import "std/IO"
 
 fun main
-  def msg "hello there."
+  def msg "I found you, faker!"
   call printsln msg
 end
